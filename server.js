@@ -93,6 +93,52 @@ async function getSession() {
   return cachedSession;
 }
 
+// Claude API ile selamlama üret
+function claudeGreeting() {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 200,
+      messages: [{
+        role: 'user',
+        content: `Sen Üçel Kuyumcu'nun dijital asistanısın. Ziyaretçiyi sıcak, kısa ve samimi bir şekilde selamla. Türkçe yaz. SADECE JSON döndür:
+{"mesaj":"selamlama metni","emoji":"uygun emoji"}`
+      }]
+    });
+
+    const options = {
+      hostname: 'api.anthropic.com',
+      path: '/v1/messages',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(Buffer.concat(chunks).toString());
+          const text = data.content[0].text;
+          const clean = text.replace(/```json|```/g, '').trim();
+          resolve(JSON.parse(clean));
+        } catch(e) {
+          console.error('Greeting parse hatası:', e);
+          reject(e);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 // Claude API ile altın bilgisi üret
 function claudeBilgi() {
   return new Promise((resolve, reject) => {
@@ -144,6 +190,21 @@ Her seferinde farklı ve taze bilgiler seç. SADECE JSON döndür, başka hiçbi
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET');
+
+  // Selamlama endpoint'i
+  if (req.url === '/greeting') {
+    try {
+      console.log('Greeting isteği alındı, Claude API çağrılıyor...');
+      const data = await claudeGreeting();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ success: true, ...data }));
+    } catch(err) {
+      console.error('Greeting hatası:', err.message);
+      res.writeHead(500);
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return;
+  }
 
   // Altın bilgi endpoint'i
   if (req.url === '/bilgi') {
